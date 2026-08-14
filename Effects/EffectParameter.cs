@@ -5,14 +5,12 @@ namespace GabSynth.Effects;
 
 public class EffectParameter : INotifyPropertyChanged
 {
-    private float _value;
-    private int? _mappedCc;
-    private bool _isLearning;
-
     public string Name { get; }
     public float MinValue { get; }
     public float MaxValue { get; }
+    public float DefaultValue { get; } // 👈 Remembers default baseline value
 
+    private float _value;
     public float Value
     {
         get => _value;
@@ -27,45 +25,35 @@ public class EffectParameter : INotifyPropertyChanged
         }
     }
 
-    /// <summary>
-    /// The physical MIDI CC knob number (0 - 127) mapped to this parameter.
-    /// </summary>
-    public int? MappedCc
-    {
-        get => _mappedCc;
-        set { _mappedCc = value; OnPropertyChanged(); OnPropertyChanged(nameof(MappingStatusText)); }
-    }
+    public int? MappedCc { get; set; }
+    public bool IsLearning { get; set; }
 
-    /// <summary>
-    /// Set to true when waiting for the user to twist a knob on their MIDI keyboard.
-    /// </summary>
-    public bool IsLearning
-    {
-        get => _isLearning;
-        set { _isLearning = value; OnPropertyChanged(); OnPropertyChanged(nameof(MappingStatusText)); }
-    }
+    public string MappingStatusText => MappedCc.HasValue ? $"CC #{MappedCc.Value}" : (IsLearning ? "Learn..." : "Map CC");
 
-    public string MappingStatusText => IsLearning
-        ? "Turn Knob..."
-        : (MappedCc.HasValue ? $"CC #{MappedCc.Value}" : "Learn CC");
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    public EffectParameter(string name, float minValue, float maxValue, float defaultValue)
+    public EffectParameter(string name, float min, float max, float defaultValue)
     {
         Name = name;
-        MinValue = minValue;
-        MaxValue = maxValue;
+        MinValue = min;
+        MaxValue = max;
+        DefaultValue = defaultValue;
         _value = defaultValue;
+    }
+
+    // 🔄 Resets value back to factory default
+    public void ResetToDefault()
+    {
+        Value = DefaultValue;
+        MappedCc = null; // Clear MIDI mapping unless overridden by patch
+        IsLearning = false;
     }
 
     public void UpdateFromMidiCc(byte ccValue)
     {
-        // Convert 0-127 MIDI CC range to [MinValue..MaxValue]
         float normalized = ccValue / 127.0f;
         Value = MinValue + (normalized * (MaxValue - MinValue));
     }
 
+    public event PropertyChangedEventHandler? PropertyChanged;
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

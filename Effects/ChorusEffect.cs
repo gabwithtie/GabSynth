@@ -62,4 +62,12 @@ public class ChorusEffect : IAudioEffect
             _writePos = (_writePos + 1) % bufferLen;
         }
     }
+    public void ResetToDefaults()
+    {
+        IsEnabled = false; // Or default state (e.g. true for EQ / MasterGain / VelocityScaler)
+        foreach (var param in Parameters)
+        {
+            param.ResetToDefault();
+        }
+    }
 }

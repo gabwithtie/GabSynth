@@ -42,4 +42,12 @@ public class DelayEffect : IAudioEffect
             _writePos = (_writePos + 1) % _delayBuffer.Length;
         }
     }
+    public void ResetToDefaults()
+    {
+        IsEnabled = false; // Or default state (e.g. true for EQ / MasterGain / VelocityScaler)
+        foreach (var param in Parameters)
+        {
+            param.ResetToDefault();
+        }
+    }
 }

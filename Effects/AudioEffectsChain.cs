@@ -8,6 +8,7 @@ public class AudioEffectsChain
 
     public AudioEffectsChain()
     {
+        Effects.Add(new VelocityScalerEffect()); // 🎛️ MIDI Velocity Dynamics
         Effects.Add(new BandEqEffect());
         Effects.Add(new LowPassFilterEffect());
         Effects.Add(new OverdriveEffect());

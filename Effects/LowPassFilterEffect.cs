@@ -59,4 +59,12 @@ public class LowPassFilterEffect : IAudioEffect
             buffer[i] = v2;
         }
     }
+    public void ResetToDefaults()
+    {
+        IsEnabled = false; // Or default state (e.g. true for EQ / MasterGain / VelocityScaler)
+        foreach (var param in Parameters)
+        {
+            param.ResetToDefault();
+        }
+    }
 }

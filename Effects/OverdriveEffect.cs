@@ -30,4 +30,12 @@ public class OverdriveEffect : IAudioEffect
             buffer[i] = (input * (1.0f - mix)) + (distorted * mix);
         }
     }
+    public void ResetToDefaults()
+    {
+        IsEnabled = false; // Or default state (e.g. true for EQ / MasterGain / VelocityScaler)
+        foreach (var param in Parameters)
+        {
+            param.ResetToDefault();
+        }
+    }
 }

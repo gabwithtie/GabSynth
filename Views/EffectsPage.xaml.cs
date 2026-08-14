@@ -54,7 +54,7 @@ public partial class EffectsPage : ContentPage
                 _activeSlot = slot;
                 _processor.LoadPreset(slot);
                 PresetStatusLabel.Text = $"Active Slot: #{slot} (CC #{ccNum})";
-                
+
                 RefreshPresetBarStyles();
                 RebindUiValues();
             };
@@ -78,7 +78,7 @@ public partial class EffectsPage : ContentPage
 
                 btn.BorderWidth = isActive ? 2 : 0;
                 btn.BorderColor = isActive ? Color.FromArgb("#00FF66") : Colors.Transparent;
-                
+
                 UpdateButtonAppearance(btn, hasData, isActive);
             }
         }

@@ -7,4 +7,5 @@ public interface IAudioEffect
     IReadOnlyList<EffectParameter> Parameters { get; }
     void Initialize(int sampleRate);
     void Process(Span<float> buffer);
+    void ResetToDefaults(); // 👈 Reset method contract
 }

@@ -58,4 +58,13 @@ public class BandEqEffect : IAudioEffect
             buffer[i] = (lowBand * lowGain) + (midBand * midGain) + (highBand * highGain);
         }
     }
+
+    public void ResetToDefaults()
+    {
+        IsEnabled = false; // Or default state (e.g. true for EQ / MasterGain / VelocityScaler)
+        foreach (var param in Parameters)
+        {
+            param.ResetToDefault();
+        }
+    }
 }
