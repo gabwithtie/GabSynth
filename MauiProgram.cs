@@ -1,5 +1,7 @@
 ﻿using GabSynth;
+using GabSynth.Audio;
 using GabSynth.Interfaces;
+using GabSynth.Services;
 using GabSynth.ViewModels;
 
 namespace GabSynth;
@@ -8,6 +10,28 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+        // 1. Catch C# AppDomain Unhandled Exceptions
+        AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+        {
+            var ex = e.ExceptionObject as Exception;
+            AppLogger.Log("CRITICAL: Unhandled AppDomain Exception", ex);
+        };
+
+        // 2. Catch Async Task Exceptions
+        TaskScheduler.UnobservedTaskException += (s, e) =>
+        {
+            AppLogger.Log("CRITICAL: Unobserved Task Exception", e.Exception);
+        };
+
+#if ANDROID
+        // 3. Catch Native Android/JNI Native Exceptions
+        Android.Runtime.AndroidEnvironment.UnhandledExceptionRaiser += (s, e) =>
+        {
+            AppLogger.Log("CRITICAL: Native Android JNI Exception", e.Exception);
+            e.Handled = true; // Prevents instant crash so log can render/save
+        };
+#endif
+
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()
@@ -18,13 +42,15 @@ public static class MauiProgram
 
         // Register Platform-Specific Audio/MIDI Services
 #if ANDROID
-        builder.Services.AddSingleton<IMidiService, Platforms.Android.Services.AndroidMidiService>();
-        builder.Services.AddSingleton<IAudioEngine, Platforms.Android.Services.AndroidAudioEngine>();
+        builder.Services.AddSingleton<IMidiService, GabSynth.Platforms.Android.Services.AndroidMidiService>();
+        builder.Services.AddSingleton<IAudioEngine, GabSynth.Platforms.Android.Services.AndroidAudioEngine>();
+        builder.Services.AddSingleton<ISoundFontService, GabSynth.Platforms.Android.Services.AndroidSoundFontService>();
 #endif
 
-        // Register Cross-Platform View Models & Views
-        builder.Services.AddSingleton<MainViewModel>();
-        builder.Services.AddSingleton<MainPage>();
+        builder.Services.AddSingleton<IAudioProcessor, GabSynth.Audio.MeltyAudioProcessor>();
+        builder.Services.AddSingleton<ViewModels.MainViewModel>();
+        builder.Services.AddSingleton<Views.EffectsPage>();
+        builder.Services.AddTransient<MainPage>();
 
         return builder.Build();
     }

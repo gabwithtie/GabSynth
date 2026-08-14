@@ -1,0 +1,61 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="GabSynth.Views.EffectsPage"
+             Title="Effects &amp; Presets"
+             BackgroundColor="#121216">
+
+	<ScrollView Padding="16">
+		<VerticalStackLayout Spacing="20">
+
+			<!-- PRESET CONTROL BAR -->
+			<Frame BackgroundColor="#1A1A22" BorderColor="#2E2E3E" CornerRadius="12" Padding="12">
+				<VerticalStackLayout Spacing="12">
+
+					<!-- Preset Header with Dedicated Save Button -->
+					<Grid ColumnDefinitions="*, Auto, Auto" ColumnSpacing="10">
+						<VerticalStackLayout VerticalOptions="Center">
+							<Label Text="PRESETS (MIDI CC #36 - #43)" 
+                                   TextColor="#00FF66" 
+                                   FontSize="12" 
+                                   FontAttributes="Bold" />
+							<Label x:Name="PresetStatusLabel" 
+                                   Text="Active Slot: #1" 
+                                   TextColor="#8888A0" 
+                                   FontSize="10" />
+						</VerticalStackLayout>
+
+						<!-- DEDICATED SAFE SAVE BUTTON -->
+						<Button Grid.Column="1"
+                                x:Name="SavePresetBtn"
+                                Text="💾 Save Slot"
+                                Clicked="OnSavePresetClicked"
+                                BackgroundColor="#332233"
+                                BorderColor="#FF0055"
+                                BorderWidth="1"
+                                TextColor="#FF0055"
+                                FontAttributes="Bold"
+                                FontSize="11"
+                                HeightRequest="36"
+                                Padding="12,0"/>
+					</Grid>
+
+					<!-- 8 Preset Buttons Grid -->
+					<Grid x:Name="PresetGrid" 
+                          ColumnDefinitions="*,*,*,*,*,*,*,*" 
+                          ColumnSpacing="6" 
+                          HeightRequest="42"/>
+				</VerticalStackLayout>
+			</Frame>
+
+			<Label Text="AUDIO EFFECTS CHAIN" 
+                   TextColor="#FF0055" 
+                   FontSize="14" 
+                   FontAttributes="Bold" />
+
+			<!-- Dynamic Effects List Container -->
+			<VerticalStackLayout Spacing="12" x:Name="EffectsContainer" />
+
+		</VerticalStackLayout>
+	</ScrollView>
+</ContentPage>

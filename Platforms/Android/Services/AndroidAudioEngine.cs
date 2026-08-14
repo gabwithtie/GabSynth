@@ -1,43 +1,66 @@
-﻿using Android.Media;
+﻿using Android.Content;
+using Android.Media;
 using GabSynth.Interfaces;
 
 namespace GabSynth.Platforms.Android.Services;
 
 public class AndroidAudioEngine : IAudioEngine
 {
+    private readonly IAudioProcessor _audioProcessor;
     private AudioTrack? _audioTrack;
     private CancellationTokenSource? _cts;
 
-    private const int SampleRate = 44100;
-    private float _phase = 0.0f;
-    private float _frequency = 440.0f;
-    private bool _isPlaying = false;
-    private float _filterCutoff = 1000f;
+    private int _sampleRate = 48000;
+    private int _bufferFrameSize = 192;
 
     public bool IsRunning { get; private set; }
+
+    // Inject IAudioProcessor directly!
+    public AndroidAudioEngine(IAudioProcessor audioProcessor)
+    {
+        _audioProcessor = audioProcessor;
+    }
 
     public void Start()
     {
         if (IsRunning) return;
 
-        int minBufferSize = AudioTrack.GetMinBufferSize(
-            SampleRate,
-            ChannelOut.Mono,
-            Encoding.Pcm16bit);
+        var context = global::Android.App.Application.Context;
+        var audioManager = (AudioManager?)context.GetSystemService(Context.AudioService);
 
-        _audioTrack = new AudioTrack.Builder()
-        .SetAudioAttributes(new AudioAttributes.Builder()
+        if (audioManager != null)
+        {
+            if (int.TryParse(audioManager.GetProperty(AudioManager.PropertyOutputSampleRate), out int nativeRate))
+                _sampleRate = nativeRate;
+
+            if (int.TryParse(audioManager.GetProperty(AudioManager.PropertyOutputFramesPerBuffer), out int nativeFrames))
+                _bufferFrameSize = nativeFrames;
+        }
+
+        _audioProcessor.Initialize(_sampleRate);
+
+        var attributes = new AudioAttributes.Builder()
             .SetUsage(AudioUsageKind.Media)
             .SetContentType(AudioContentType.Music)
-            .Build())
-        .SetAudioFormat(new AudioFormat.Builder()
+            .SetFlags(AudioFlags.LowLatency)
+            .Build();
+
+        var format = new AudioFormat.Builder()
             .SetEncoding(Encoding.Pcm16bit)
-            .SetSampleRate(SampleRate)
+            .SetSampleRate(_sampleRate)
             .SetChannelMask(ChannelOut.Mono)
-            .Build())
-        .SetBufferSizeInBytes(minBufferSize)
-        .SetPerformanceMode(AudioTrackPerformanceMode.LowLatency)
-        .Build();
+            .Build();
+
+        int minBufferSizeInBytes = _bufferFrameSize * 2 * 2;
+
+        _audioTrack = new AudioTrack.Builder()
+            .SetAudioAttributes(attributes)
+            .SetAudioFormat(format)
+            .SetBufferSizeInBytes(minBufferSizeInBytes)
+            .SetPerformanceMode(AudioTrackPerformanceMode.LowLatency)
+            .Build();
+
+        try { _audioTrack.SetBufferSizeInFrames(_bufferFrameSize); } catch { }
 
         _audioTrack.Play();
         IsRunning = true;
@@ -56,47 +79,28 @@ public class AndroidAudioEngine : IAudioEngine
 
     public void HandleMidiMessage(byte status, byte note, byte velocity)
     {
-        byte command = (byte)(status & 0xF0);
-
-        if (command == 0x90 && velocity > 0) // Note On
-        {
-            // Conversion equation: f = 440 * 2^((n - 69) / 12)
-            _frequency = (float)(440.0 * Math.Pow(2.0, (note - 69) / 12.0));
-            _isPlaying = true;
-        }
-        else if (command == 0x80 || (command == 0x90 && velocity == 0)) // Note Off
-        {
-            _isPlaying = false;
-        }
+        // Forward MIDI straight to generic processor
+        _audioProcessor.ProcessMidiMessage(status, note, velocity);
     }
 
-    public void UpdateFilterCutoff(float cutoffFrequency)
-    {
-        Volatile.Write(ref _filterCutoff, cutoffFrequency);
-    }
+    public void UpdateFilterCutoff(float cutoffFrequency) { }
 
     private void AudioRenderLoop(CancellationToken token)
     {
-        // Reusable allocation buffer to avoid GC latency pops
-        short[] pcmBuffer = new short[256];
+        float[] floatBuffer = new float[_bufferFrameSize];
+        short[] pcmBuffer = new short[_bufferFrameSize];
 
         while (!token.IsCancellationRequested)
         {
-            float phaseIncrement = (float)(2.0 * Math.PI * _frequency / SampleRate);
+            _audioProcessor.RenderAudio(floatBuffer);
 
-            for (int i = 0; i < pcmBuffer.Length; i++)
+            for (int i = 0; i < _bufferFrameSize; i++)
             {
-                if (_isPlaying)
-                {
-                    _phase += phaseIncrement;
-                    if (_phase >= 2.0 * Math.PI) _phase -= (float)(2.0 * Math.PI);
+                // CRITICAL FIX: Clamp float to [-1.0f, +1.0f] BEFORE casting to short!
+                // This prevents integer wraparound explosions when audio clips.
+                float clampedSample = Math.Clamp(floatBuffer[i], -1.0f, 1.0f);
 
-                    pcmBuffer[i] = (short)(Math.Sin(_phase) * short.MaxValue * 0.5);
-                }
-                else
-                {
-                    pcmBuffer[i] = 0;
-                }
+                pcmBuffer[i] = (short)(clampedSample * 32767.0f);
             }
 
             _audioTrack?.Write(pcmBuffer, 0, pcmBuffer.Length);

@@ -1,24 +1,39 @@
-﻿namespace GabSynth
+﻿using GabSynth.Interfaces;
+using GabSynth.Services;
+using GabSynth.ViewModels;
+
+namespace GabSynth;
+
+public partial class MainPage : ContentPage
 {
-    public partial class MainPage : ContentPage
+    private readonly MainViewModel _viewModel;
+
+    public MainPage(MainViewModel viewModel)
     {
-        int count = 0;
+        InitializeComponent();
+        BindingContext = viewModel;
 
-        public MainPage()
+        // Listen for live updates
+        AppLogger.OnLogUpdated += (logText) =>
         {
-            InitializeComponent();
-        }
+            LogEditor.Text = logText;
+        };
 
-        private void OnCounterClicked(object? sender, EventArgs e)
+        // Load any saved crash logs from local storage on app startup
+        AppLogger.LoadSavedLog();
+    }
+
+    private void OnClearLogClicked(object sender, EventArgs e)
+    {
+        AppLogger.Clear();
+    }
+
+    private async void OnOpenEffectsClicked(object sender, EventArgs e)
+    {
+        var audioProcessor = Handler?.MauiContext?.Services.GetService<IAudioProcessor>();
+        if (audioProcessor != null)
         {
-            count++;
-
-            if (count == 1)
-                CounterBtn.Text = $"Clicked {count} time";
-            else
-                CounterBtn.Text = $"Clicked {count} times";
-
-            SemanticScreenReader.Announce(CounterBtn.Text);
+            await Navigation.PushAsync(new GabSynth.Views.EffectsPage(audioProcessor));
         }
     }
 }
