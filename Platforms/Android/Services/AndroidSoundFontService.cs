@@ -7,13 +7,19 @@ namespace GabSynth.Platforms.Android.Services;
 
 public class AndroidSoundFontService : ISoundFontService
 {
-    public async Task<List<SoundFontGroup>> SyncAndGetSoundFontsAsync()
+    private string GetTargetBaseDir()
     {
         string targetBaseDir = Path.Combine(FileSystem.AppDataDirectory, "SoundFonts");
         if (!Directory.Exists(targetBaseDir))
         {
             Directory.CreateDirectory(targetBaseDir);
         }
+        return targetBaseDir;
+    }
+
+    public async Task<List<SoundFontGroup>> SyncAndGetSoundFontsAsync()
+    {
+        string targetBaseDir = GetTargetBaseDir();
 
         // 1. Extract bundled assets from APK assets if not extracted yet
         var context = global::Android.App.Application.Context;
@@ -63,6 +69,67 @@ public class AndroidSoundFontService : ISoundFontService
         return groups;
     }
 
+    public async Task<bool> ImportSoundFontAsync(FileResult file, string categorySubFolder = "")
+    {
+        try
+        {
+            string baseDir = GetTargetBaseDir();
+            string targetDir = string.IsNullOrWhiteSpace(categorySubFolder)
+                ? baseDir
+                : Path.Combine(baseDir, categorySubFolder);
+
+            if (!Directory.Exists(targetDir))
+            {
+                Directory.CreateDirectory(targetDir);
+            }
+
+            string destinationPath = Path.Combine(targetDir, file.FileName);
+
+            using var inputStream = await file.OpenReadAsync();
+            using var outputStream = File.Create(destinationPath);
+            await inputStream.CopyToAsync(outputStream);
+
+            AppLogger.Log($"[SoundFontService] Imported: {file.FileName} -> {destinationPath}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Log($"[SoundFontService] Failed to import file: {file.FileName}", ex);
+            return false;
+        }
+    }
+
+    public Task<bool> DeleteSoundFontAsync(string fullPath)
+    {
+        return Task.Run(() =>
+        {
+            try
+            {
+                if (File.Exists(fullPath))
+                {
+                    File.Delete(fullPath);
+                    AppLogger.Log($"[SoundFontService] Deleted: {fullPath}");
+
+                    // Clean up empty directory if applicable
+                    string? parentDir = Path.GetDirectoryName(fullPath);
+                    string baseDir = GetTargetBaseDir();
+                    if (!string.IsNullOrEmpty(parentDir) && parentDir != baseDir && Directory.GetFiles(parentDir).Length == 0)
+                    {
+                        Directory.Delete(parentDir);
+                    }
+
+                    return true;
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Log($"[SoundFontService] Failed to delete file: {fullPath}", ex);
+                return false;
+            }
+        });
+    }
+
     private void CopyAssetsRecursively(AssetManager assets, string assetPath, string localPath)
     {
         try
@@ -82,7 +149,6 @@ public class AndroidSoundFontService : ISoundFontService
 
                 if (item.EndsWith(".sf2", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Copy file if it doesn't already exist
                     if (!File.Exists(subLocalPath))
                     {
                         using var inputStream = assets.Open(subAssetPath);
@@ -91,7 +157,7 @@ public class AndroidSoundFontService : ISoundFontService
                         AppLogger.Log($"[SoundFontService] Extracted: {item}");
                     }
                 }
-                else if (!item.Contains(".")) // Subfolder
+                else if (!item.Contains("."))
                 {
                     CopyAssetsRecursively(assets, subAssetPath, subLocalPath);
                 }

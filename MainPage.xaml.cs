@@ -147,6 +147,17 @@ public partial class MainPage : ContentPage
 
     private void OnAddMasterEffectClicked(object sender, EventArgs e) { /* Add Master Effect Flow */ }
 
+    private async void OnOpenInstrumentDatabaseClicked(object sender, EventArgs e)
+    {
+        // Resolve InstrumentDatabasePage with its DI dependencies
+        var databasePage = Handler?.MauiContext?.Services.GetService<InstrumentDatabasePage>();
+
+        if (databasePage != null)
+        {
+            await Navigation.PushAsync(databasePage);
+        }
+    }
+
     private async void OnLoadPresetClicked(object sender, EventArgs e)
     {
         if (_processor == null) return;

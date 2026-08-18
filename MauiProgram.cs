@@ -3,6 +3,7 @@ using GabSynth.Audio;
 using GabSynth.Interfaces;
 using GabSynth.Services;
 using GabSynth.ViewModels;
+using GabSynth.Views;
 
 namespace GabSynth;
 
@@ -51,6 +52,8 @@ public static class MauiProgram
         builder.Services.AddSingleton<ViewModels.MainViewModel>();
         builder.Services.AddSingleton<Views.ChannelEditorPage>();
         builder.Services.AddTransient<MainPage>();
+
+        builder.Services.AddTransient<InstrumentDatabasePage>();
 
         return builder.Build();
     }
