@@ -1,4 +1,5 @@
 ﻿using MeltySynth;
+using GabSynth.Config;
 using GabSynth.Effects;
 using GabSynth.Interfaces;
 using GabSynth.Models;
@@ -8,37 +9,124 @@ namespace GabSynth.Audio;
 
 public class MeltyAudioProcessor : IAudioProcessor
 {
-    private Synthesizer? _synthesizer;
-    private float[] _leftBuffer = Array.Empty<float>();
-    private float[] _rightBuffer = Array.Empty<float>();
+    public MixerChannel[] Channels { get; } = new MixerChannel[BuildSettings.MaxMixerChannels];
+    public EffectsChain MasterEffects { get; } = new();
+
+    private float[] _mixBufferLeft = Array.Empty<float>();
+    private float[] _mixBufferRight = Array.Empty<float>();
+    private float[] _channelBufferLeft = Array.Empty<float>();
+    private float[] _channelBufferRight = Array.Empty<float>();
+    private float[] _channelMonoBuffer = Array.Empty<float>();
+
     private readonly object _renderLock = new();
     private int _sampleRate = 48000;
 
-    // 🎯 Pitch Bend Auto-Reset & Deadband Defaults
-    private const int PitchBendCenter = 8192;
-    private const int PitchBendDeadband = 300;
-    private bool _isWaitingForPitchBendCenter = false;
-    private int _lastPhysicalPitchBend = PitchBendCenter;
-
-    // 🎹 Dynamic Voice Allocation (Per-Note MIDI Channel Pool)
-    // Channel 9 is skipped because it is reserved for GM Drums
-    private readonly List<byte> _availableChannels = new() { 0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15 };
-    private readonly Dictionary<byte, byte> _noteToChannelMap = new();
-
-    public AudioEffectsChain EffectsChain { get; } = new();
-    public PresetManager Presets { get; } = new();
-    public string CurrentSoundFontPath { get; private set; } = string.Empty;
-
-    public event Action<string>? OnSoundFontChangedFromPreset;
+    public MeltyAudioProcessor()
+    {
+        for (int i = 0; i < BuildSettings.MaxMixerChannels; i++)
+        {
+            Channels[i] = new MixerChannel(i + 1);
+        }
+    }
 
     public void Initialize(int sampleRate)
     {
         _sampleRate = sampleRate;
-        EffectsChain.Initialize(sampleRate);
+        MasterEffects.Initialize(sampleRate);
     }
 
-    public void LoadSoundFont(string filePath)
+    public void ProcessMidiMessage(byte status, byte note, byte velocity)
     {
+        byte command = (byte)(status & 0xF0);
+        byte midiChannel = (byte)(status & 0x0F);
+
+        lock (_renderLock)
+        {
+            for (int i = 0; i < Channels.Length; i++)
+            {
+                // Route strictly based on matching MIDI channel index
+                if (midiChannel == i && Channels[i].IsEnabled && Channels[i].Synth != null)
+                {
+                    Channels[i].Synth.ProcessMidiMessage(0, command, note, velocity);
+                }
+            }
+        }
+    }
+
+    public void ProcessChannelMidi(int channelIndex, byte internalMidiChannel, byte command, byte note, byte velocity)
+    {
+        lock (_renderLock)
+        {
+            if (channelIndex >= 0 && channelIndex < Channels.Length)
+            {
+                var channel = Channels[channelIndex];
+                if (channel.IsEnabled && channel.Synth != null)
+                {
+                    // Clean command byte to ensure correct MeltySynth status execution
+                    byte cleanCommand = (byte)(command & 0xF0);
+                    channel.Synth.ProcessMidiMessage(internalMidiChannel, cleanCommand, note, velocity);
+                }
+            }
+        }
+    }
+
+    public void RenderAudio(Span<float> outputBuffer)
+    {
+        int bufferSize = outputBuffer.Length;
+        EnsureBuffers(bufferSize);
+
+        Span<float> mixLeft = _mixBufferLeft.AsSpan(0, bufferSize);
+        Span<float> mixRight = _mixBufferRight.AsSpan(0, bufferSize);
+        mixLeft.Clear();
+        mixRight.Clear();
+
+        lock (_renderLock)
+        {
+            foreach (var channel in Channels)
+            {
+                if (!channel.IsEnabled || channel.Synth == null || channel.Volume <= 0.001f) continue;
+
+                Span<float> chLeft = _channelBufferLeft.AsSpan(0, bufferSize);
+                Span<float> chRight = _channelBufferRight.AsSpan(0, bufferSize);
+
+                // 1. Synthesize Full Stereo Audio
+                channel.Synth.Render(chLeft, chRight);
+
+                // 2. Process Channel Audio Effects (Dual-Mono/Stereo processing)
+                Span<float> chMono = _channelMonoBuffer.AsSpan(0, bufferSize);
+                for (int i = 0; i < bufferSize; i++)
+                {
+                    chMono[i] = (chLeft[i] + chRight[i]) * 0.5f;
+                }
+
+                channel.Effects.ProcessAudio(chMono);
+
+                // 3. Sum processed signal back into Stereo Master Mix preserving SoundFont panning
+                for (int i = 0; i < bufferSize; i++)
+                {
+                    float effectContribution = chMono[i] * channel.Volume;
+
+                    // Blend processed effect with stereo synthesis signal
+                    mixLeft[i] += (chLeft[i] * channel.Volume) + effectContribution;
+                    mixRight[i] += (chRight[i] * channel.Volume) + effectContribution;
+                }
+            }
+        }
+
+        // Collapse Master Stereo Mix down to target mono output buffer
+        for (int i = 0; i < bufferSize; i++)
+        {
+            outputBuffer[i] = (mixLeft[i] + mixRight[i]) * 0.5f;
+        }
+
+        // 4. Global Master Audio Effects & Soft Clipping
+        MasterEffects.ProcessAudio(outputBuffer);
+        ApplyMasterSoftClippingAndLimiting(outputBuffer);
+    }
+
+    public void LoadSoundFontToChannel(int channelIndex, string filePath)
+    {
+        if (channelIndex < 0 || channelIndex >= Channels.Length) return;
         if (!File.Exists(filePath)) return;
 
         lock (_renderLock)
@@ -49,238 +137,33 @@ public class MeltyAudioProcessor : IAudioProcessor
                 var soundFont = new SoundFont(stream);
                 var settings = new SynthesizerSettings(_sampleRate) { BlockSize = 64 };
 
-                _synthesizer = new Synthesizer(soundFont, settings);
-                CurrentSoundFontPath = filePath;
+                var channel = Channels[channelIndex];
+                channel.Synth = new Synthesizer(soundFont, settings);
 
-                ResetChannelPool();
+                // Initialize preset on both internal channels for top-note pitch bend routing
+                channel.Synth.ProcessMidiMessage(0, 0xC0, 0, 0);
+                channel.Synth.ProcessMidiMessage(1, 0xC0, 0, 0);
+
+                channel.CurrentSoundFontPath = filePath;
+                channel.IsEnabled = true;
             }
             catch (Exception ex)
             {
-                AppLogger.Log($"[MeltySynth] Error loading SoundFont", ex);
+                AppLogger.Log($"[MeltySynth] Error loading SoundFont into CH {channelIndex + 1}", ex);
             }
         }
     }
 
-    public void SavePreset(int slotNumber, string presetName = "")
+    private void EnsureBuffers(int bufferSize)
     {
-        Presets.SavePreset(slotNumber, CurrentSoundFontPath, EffectsChain, presetName);
-    }
-
-    public void LoadPreset(int slotNumber)
-    {
-        var preset = Presets.LoadPresetData(slotNumber);
-        if (preset == null)
+        if (_mixBufferLeft.Length < bufferSize)
         {
-            AppLogger.Log($"[Preset] Slot #{slotNumber} is empty!");
-            return;
+            _mixBufferLeft = new float[bufferSize];
+            _mixBufferRight = new float[bufferSize];
+            _channelBufferLeft = new float[bufferSize];
+            _channelBufferRight = new float[bufferSize];
+            _channelMonoBuffer = new float[bufferSize];
         }
-
-        Presets.ApplyPresetToEffects(preset, EffectsChain);
-
-        if (!string.IsNullOrEmpty(preset.SoundFontPath) && File.Exists(preset.SoundFontPath))
-        {
-            if (preset.SoundFontPath != CurrentSoundFontPath)
-            {
-                LoadSoundFont(preset.SoundFontPath);
-                MainThread.BeginInvokeOnMainThread(() =>
-                {
-                    OnSoundFontChangedFromPreset?.Invoke(preset.SoundFontPath);
-                });
-            }
-        }
-
-        AppLogger.Log($"[Preset] Successfully Loaded Slot #{slotNumber}: '{preset.Name}'");
-    }
-
-    public void ProcessMidiMessage(byte status, byte note, byte velocity)
-    {
-        byte command = (byte)(status & 0xF0);
-
-        // 1. MIDI Control Change (Presets & Knob Mappings)
-        if (command == 0xB0)
-        {
-            byte ccNumber = note;
-            byte ccValue = velocity;
-
-            if (ccNumber >= 36 && ccNumber <= 43)
-            {
-                if (ccValue > 0)
-                {
-                    int targetSlot = ccNumber - 35;
-                    LoadPreset(targetSlot);
-                }
-                return;
-            }
-
-            EffectsChain.HandleControlChange(ccNumber, ccValue);
-            return;
-        }
-
-        // 2. MIDI Pitch Bend (0xE0) — Target Top Note Only
-        if (command == 0xE0)
-        {
-            int rawPitchValue = (velocity << 7) | note; // 14-bit value (0 .. 16383)
-            _lastPhysicalPitchBend = rawPitchValue;
-
-            if (_isWaitingForPitchBendCenter)
-            {
-                if (Math.Abs(rawPitchValue - PitchBendCenter) <= PitchBendDeadband)
-                {
-                    _isWaitingForPitchBendCenter = false; // Unlocked!
-                }
-            }
-
-            lock (_renderLock)
-            {
-                UpdatePitchBendsAcrossChannels();
-            }
-            return;
-        }
-
-        if (_synthesizer == null) return;
-
-        // 3. Note On / Note Off Processing
-        lock (_renderLock)
-        {
-            if (command == 0x90 && velocity > 2) // Note On
-            {
-                byte assignedChannel = AssignChannelForNote(note);
-
-                // Arm pitch bend lock if wheel is held off-center
-                _isWaitingForPitchBendCenter = Math.Abs(_lastPhysicalPitchBend - PitchBendCenter) > PitchBendDeadband;
-
-                // Optional Velocity Scaling Processor
-                byte processedVelocity = velocity;
-                var velEffect = EffectsChain.Effects.OfType<VelocityScalerEffect>().FirstOrDefault();
-                if (velEffect != null)
-                {
-                    processedVelocity = velEffect.ProcessVelocity(velocity);
-                }
-
-                _synthesizer.NoteOn(assignedChannel, note, processedVelocity);
-
-                // Re-evaluate top note and route pitch bend
-                UpdatePitchBendsAcrossChannels();
-            }
-            else if (command == 0x80 || (command == 0x90 && velocity <= 2)) // Note Off
-            {
-                if (_noteToChannelMap.TryGetValue(note, out byte assignedChannel))
-                {
-                    _synthesizer.NoteOff(assignedChannel, note);
-                    ReleaseChannelForNote(note);
-
-                    // Re-evaluate top note and route pitch bend to remaining held notes
-                    UpdatePitchBendsAcrossChannels();
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Sends active pitch bend ONLY to the highest active note's MIDI channel.
-    /// All other active notes are locked to PitchBendCenter (8192).
-    /// </summary>
-    private void UpdatePitchBendsAcrossChannels()
-    {
-        if (_synthesizer == null || _noteToChannelMap.Count == 0) return;
-
-        // Identify the highest active note
-        byte topNote = _noteToChannelMap.Keys.Max();
-        byte topChannel = _noteToChannelMap[topNote];
-
-        int bendForTopNote = _isWaitingForPitchBendCenter ? PitchBendCenter : _lastPhysicalPitchBend;
-
-        byte topLsb = (byte)(bendForTopNote & 0x7F);
-        byte topMsb = (byte)((bendForTopNote >> 7) & 0x7F);
-
-        byte centerLsb = 0x00;
-        byte centerMsb = 0x40; // 8192 Center
-
-        foreach (var kvp in _noteToChannelMap)
-        {
-            byte channel = kvp.Value;
-
-            if (channel == topChannel)
-            {
-                _synthesizer.ProcessMidiMessage(channel, 0xE0, topLsb, topMsb);
-            }
-            else
-            {
-                _synthesizer.ProcessMidiMessage(channel, 0xE0, centerLsb, centerMsb);
-            }
-        }
-    }
-
-    private byte AssignChannelForNote(byte note)
-    {
-        if (_noteToChannelMap.TryGetValue(note, out byte existingCh))
-        {
-            return existingCh;
-        }
-
-        if (_availableChannels.Count > 0)
-        {
-            byte channel = _availableChannels[0];
-            _availableChannels.RemoveAt(0);
-            _noteToChannelMap[note] = channel;
-            return channel;
-        }
-
-        // Fallback if all channels are occupied
-        _noteToChannelMap[note] = 0;
-        return 0;
-    }
-
-    private void ReleaseChannelForNote(byte note)
-    {
-        if (_noteToChannelMap.TryGetValue(note, out byte channel))
-        {
-            _noteToChannelMap.Remove(note);
-            if (!_availableChannels.Contains(channel) && channel != 9)
-            {
-                _availableChannels.Add(channel);
-            }
-        }
-    }
-
-    private void ResetChannelPool()
-    {
-        _availableChannels.Clear();
-        _availableChannels.AddRange(new byte[] { 0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15 });
-        _noteToChannelMap.Clear();
-    }
-
-    public void RenderAudio(Span<float> outputBuffer)
-    {
-        if (_synthesizer == null)
-        {
-            outputBuffer.Clear();
-            return;
-        }
-
-        int bufferSize = outputBuffer.Length;
-
-        if (_leftBuffer.Length < bufferSize)
-        {
-            _leftBuffer = new float[bufferSize];
-            _rightBuffer = new float[bufferSize];
-        }
-
-        Span<float> leftSpan = _leftBuffer.AsSpan(0, bufferSize);
-        Span<float> rightSpan = _rightBuffer.AsSpan(0, bufferSize);
-
-        lock (_renderLock)
-        {
-            _synthesizer.Render(leftSpan, rightSpan);
-        }
-
-        for (int i = 0; i < bufferSize; i++)
-        {
-            outputBuffer[i] = (leftSpan[i] + rightSpan[i]) * 0.5f;
-        }
-
-        EffectsChain.Process(outputBuffer);
-        ApplyMasterSoftClippingAndLimiting(outputBuffer);
     }
 
     private void ApplyMasterSoftClippingAndLimiting(Span<float> buffer)

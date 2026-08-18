@@ -1,25 +1,49 @@
-﻿using System.Collections.ObjectModel;
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
-using GabSynth.Audio;
+﻿using GabSynth.Audio;
+using GabSynth.Config;
 using GabSynth.Interfaces;
 using GabSynth.Models;
+using GabSynth.Services;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
 namespace GabSynth.ViewModels;
 
 public class MainViewModel : INotifyPropertyChanged
 {
+    private readonly MidiControlRouter _midiRouter;
     private readonly IAudioEngine _audioEngine;
     private readonly IMidiService _midiService;
     private readonly ISoundFontService _soundFontService;
     private readonly MeltyAudioProcessor? _meltyProcessor;
 
     private SoundFontItem? _selectedSoundFont;
+    private int _selectedChannelIndex = 0;
     private string _statusText = "Initializing...";
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public ObservableCollection<SoundFontGroup> SoundFontGroups { get; } = new();
+    public ObservableCollection<MixerChannel> Channels { get; } = new();
+
+    /// <summary>
+    /// Target channel (0 to MaxMixerChannels - 1) to receive the assigned SoundFont instrument.
+    /// </summary>
+    public int SelectedChannelIndex
+    {
+        get => _selectedChannelIndex;
+        set
+        {
+            if (_selectedChannelIndex != value && value >= 0 && value < BuildSettings.MaxMixerChannels)
+            {
+                _selectedChannelIndex = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(SelectedChannelName));
+            }
+        }
+    }
+
+    public string SelectedChannelName => $"Channel {SelectedChannelIndex + 1}";
 
     public SoundFontItem? SelectedSoundFont
     {
@@ -31,9 +55,12 @@ public class MainViewModel : INotifyPropertyChanged
                 _selectedSoundFont = value;
                 OnPropertyChanged();
 
-                // Swap active SoundFont in MeltySynth
-                _meltyProcessor?.LoadSoundFont(value.FullPath);
-                StatusText = $"Loaded Instrument: {value.Name}";
+                // Route SoundFont load to the specifically targeted mixer channel
+                if (_meltyProcessor != null)
+                {
+                    _meltyProcessor.LoadSoundFontToChannel(SelectedChannelIndex, value.FullPath);
+                    StatusText = $"CH {SelectedChannelIndex + 1} Loaded: {value.Name}";
+                }
             }
         }
     }
@@ -55,10 +82,27 @@ public class MainViewModel : INotifyPropertyChanged
         _soundFontService = soundFontService;
         _meltyProcessor = audioProcessor as MeltyAudioProcessor;
 
+        // Populate mixer channel references for binding in UI
+        if (_meltyProcessor != null)
+        {
+            foreach (var channel in _meltyProcessor.Channels)
+            {
+                Channels.Add(channel);
+            }
+
+            _midiRouter = new MidiControlRouter(
+                _meltyProcessor.Channels,
+                _meltyProcessor.MasterEffects,
+                _meltyProcessor
+            );
+        }
+
         _midiService.MidiMessageReceived += (sender, e) =>
         {
-            _audioEngine.HandleMidiMessage(e.Command, e.Note, e.Velocity);
+            // Route raw MIDI into the synth-agnostic controller
+            _midiRouter.ProcessRawMidi(e.Command, e.Note, e.Velocity);
         };
+
 
         _audioEngine.Start();
         _midiService.Initialize();
@@ -79,14 +123,14 @@ public class MainViewModel : INotifyPropertyChanged
                 SoundFontGroups.Add(group);
             }
 
-            // Automatically select the first found instrument
+            // Automatically load first instrument into Channel 1
             if (SoundFontGroups.Count > 0 && SoundFontGroups[0].Count > 0)
             {
                 SelectedSoundFont = SoundFontGroups[0][0];
             }
             else
             {
-                StatusText = "No SoundFonts (.sf2) found in Resources/Raw/SoundFonts/";
+                StatusText = "No SoundFonts (.sf2) found in local storage.";
             }
         });
     }

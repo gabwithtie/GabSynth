@@ -49,7 +49,7 @@ public static class MauiProgram
 
         builder.Services.AddSingleton<IAudioProcessor, GabSynth.Audio.MeltyAudioProcessor>();
         builder.Services.AddSingleton<ViewModels.MainViewModel>();
-        builder.Services.AddSingleton<Views.EffectsPage>();
+        builder.Services.AddSingleton<Views.ChannelEditorPage>();
         builder.Services.AddTransient<MainPage>();
 
         return builder.Build();

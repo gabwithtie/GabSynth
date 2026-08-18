@@ -2,132 +2,51 @@
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:viewmodels="clr-namespace:GabSynth.ViewModels"
-             xmlns:models="clr-namespace:GabSynth.Models"
-             x:DataType="viewmodels:MainViewModel"
              x:Class="GabSynth.MainPage"
-             HideSoftInputOnTapped="False"
-             BackgroundColor="#121216">
+             BackgroundColor="#121216"
+             Title="GabSynth Console">
 
-	<!-- Single Top-Level Container -->
-	<Grid RowDefinitions="Auto, *">
+	<ScrollView Padding="16">
+		<VerticalStackLayout Spacing="20">
 
-		<!-- Top Header Bar with Title, Status & FX Chain Button -->
-		<Grid Grid.Row="0" 
-              ColumnDefinitions="*, Auto" 
-              Padding="20,15" 
-              BackgroundColor="#1A1A22" 
-              ColumnSpacing="10">
+			<Grid ColumnDefinitions="*, Auto" ColumnSpacing="8" Margin="0,0,0,10">
+				<Button Grid.Column="0" 
+            Text="📂 Load Preset" 
+            Clicked="OnLoadPresetClicked" 
+            BackgroundColor="#222233" 
+            TextColor="#00FF66" 
+            FontAttributes="Bold" 
+            CornerRadius="8" 
+            HeightRequest="40"/>
 
-			<VerticalStackLayout Spacing="8">
-				<Label Text="GabSynth Studio" FontSize="24" FontAttributes="Bold" TextColor="White"/>
-				<Frame BackgroundColor="#252533" BorderColor="#333348" Padding="10,6" CornerRadius="6" HasShadow="False">
-					<Label Text="{Binding StatusText}" TextColor="#00FF66" FontSize="12" FontFamily="Monospace"/>
-				</Frame>
-			</VerticalStackLayout>
+				<Button Grid.Column="1" 
+            Text="💾 Save Preset" 
+            Clicked="OnSavePresetClicked" 
+            BackgroundColor="#00FF66" 
+            TextColor="#121216" 
+            FontAttributes="Bold" 
+            CornerRadius="8" 
+            HeightRequest="40"/>
+			</Grid>
 
-			<!-- FX Chain Button placed nicely in the top right -->
-			<Button Grid.Column="1"
-                    Text="🎛️ FX Chain" 
-                    Clicked="OnOpenEffectsClicked" 
-                    BackgroundColor="#FF0055" 
-                    TextColor="White"
-                    FontAttributes="Bold"
-                    CornerRadius="6"
-                    VerticalOptions="Center"
-                    HeightRequest="40"/>
-		</Grid>
+			<!-- HEADER / STATUS -->
+			<Frame BackgroundColor="#1A1A22" BorderColor="#2E2E3E" Padding="12" CornerRadius="8">
+				<Label Text="{Binding StatusText}" TextColor="#00FF66" FontSize="12" FontFamily="Monospace"/>
+			</Frame>
 
-		<!-- Main Scrollable Body Area -->
-		<ScrollView Grid.Row="1" Padding="15">
-			<VerticalStackLayout Spacing="20">
+			<!-- MIXER CHANNEL STRIPS -->
+			<Label Text="CHANNEL MIXER" TextColor="#00FF66" FontSize="14" FontAttributes="Bold" />
 
-				<!-- SoundFont Grouped Selector -->
-				<VerticalStackLayout Spacing="10">
-					<Label Text="SELECT SOUNDFONT INSTRUMENT" TextColor="#8888A0" FontSize="12" FontAttributes="Bold" />
+			<VerticalStackLayout x:Name="MixerContainer" Spacing="10" />
 
-					<!-- Grouped CollectionView organized by subfolders -->
-					<CollectionView ItemsSource="{Binding SoundFontGroups}"
-                                    IsGrouped="True"
-                                    SelectionMode="Single"
-                                    SelectedItem="{Binding SelectedSoundFont, Mode=TwoWay}"
-                                    HeightRequest="260">
+			<!-- MASTER EFFECTS CHAIN -->
+			<Grid ColumnDefinitions="*, Auto" Margin="0,10,0,0">
+				<Label Text="MASTER EFFECTS CHAIN" TextColor="#FF0055" FontSize="14" FontAttributes="Bold" VerticalOptions="Center"/>
+				<Button Grid.Column="1" Text="➕ Add Master FX" Clicked="OnAddMasterEffectClicked" BackgroundColor="#222233" TextColor="#00FF66" HeightRequest="36" FontSize="11"/>
+			</Grid>
 
-						<!-- Group Subfolder Header -->
-						<CollectionView.GroupHeaderTemplate>
-							<DataTemplate x:DataType="models:SoundFontGroup">
-								<Label Text="{Binding Category}" 
-                                       FontSize="16" 
-                                       FontAttributes="Bold" 
-                                       TextColor="#FF0055" 
-                                       Padding="0,12,0,6"/>
-							</DataTemplate>
-						</CollectionView.GroupHeaderTemplate>
+			<VerticalStackLayout x:Name="MasterEffectsContainer" Spacing="10" />
 
-						<!-- Instrument Item Card -->
-						<CollectionView.ItemTemplate>
-							<DataTemplate x:DataType="models:SoundFontItem">
-								<Grid Padding="0,3">
-									<VisualStateManager.VisualStateGroups>
-										<VisualStateGroupList>
-											<VisualStateGroup x:Name="CommonStates">
-												<VisualState x:Name="Normal">
-													<VisualState.Setters>
-														<Setter Property="BackgroundColor" Value="#1E1E28" />
-													</VisualState.Setters>
-												</VisualState>
-												<VisualState x:Name="Selected">
-													<VisualState.Setters>
-														<Setter Property="BackgroundColor" Value="#FF0055" />
-													</VisualState.Setters>
-												</VisualState>
-											</VisualStateGroup>
-										</VisualStateGroupList>
-									</VisualStateManager.VisualStateGroups>
-
-									<!-- InputTransparent="True" lets taps pass through to CollectionView -->
-									<Frame Padding="15,12" 
-                                           CornerRadius="8" 
-                                           HasShadow="False" 
-                                           BorderColor="#2E2E3E"
-                                           InputTransparent="True">
-										<Label Text="{Binding Name}" 
-                                               TextColor="White" 
-                                               FontAttributes="Bold" 
-                                               FontSize="14"
-                                               InputTransparent="True" />
-									</Frame>
-								</Grid>
-							</DataTemplate>
-						</CollectionView.ItemTemplate>
-					</CollectionView>
-				</VerticalStackLayout>
-
-				<!-- On-Screen Diagnostics Console Header -->
-				<Grid ColumnDefinitions="*, Auto" Margin="0,10,0,0">
-					<Label Text="On-Screen Diagnostics Console" 
-                           TextColor="#FF0055" 
-                           FontAttributes="Bold" 
-                           VerticalOptions="Center" />
-					<Button Grid.Column="1" 
-                            Text="Clear Log" 
-                            Clicked="OnClearLogClicked" 
-                            BackgroundColor="#333344" 
-                            TextColor="White" 
-                            HeightRequest="36" />
-				</Grid>
-
-				<!-- Console Log Editor -->
-				<Frame BackgroundColor="#000000" BorderColor="#FF0055" Padding="5" HeightRequest="180">
-					<Editor x:Name="LogEditor" 
-                            IsReadOnly="True" 
-                            TextColor="#00FF66" 
-                            FontSize="11" 
-                            FontFamily="Monospace" 
-                            BackgroundColor="Transparent" />
-				</Frame>
-
-			</VerticalStackLayout>
-		</ScrollView>
-
-	</Grid>
+		</VerticalStackLayout>
+	</ScrollView>
 </ContentPage>

@@ -1,23 +1,21 @@
 ﻿namespace GabSynth.Models;
 
-public class EffectParameterState
-{
-    public string Name { get; set; } = string.Empty;
-    public float Value { get; set; }
-    public int? MappedCc { get; set; }
-}
-
-public class EffectState
-{
-    public string Name { get; set; } = string.Empty;
-    public bool IsEnabled { get; set; }
-    public List<EffectParameterState> Parameters { get; set; } = new();
-}
-
 public class SynthPreset
 {
-    public int SlotNumber { get; set; } // 1 to 8
+    public int SlotNumber { get; set; }
     public string Name { get; set; } = string.Empty;
+    public List<ChannelPresetState> Channels { get; set; } = new();
+    public List<EffectState> MasterMidiEffects { get; set; } = new();
+    public List<EffectState> MasterAudioEffects { get; set; } = new();
+}
+
+public class ChannelPresetState
+{
+    public int ChannelId { get; set; }
+    public bool IsEnabled { get; set; }
+    public float Volume { get; set; }
     public string SoundFontPath { get; set; } = string.Empty;
-    public List<EffectState> Effects { get; set; } = new();
+    public string InstrumentName { get; set; } = string.Empty;
+    public List<EffectState> MidiEffects { get; set; } = new();
+    public List<EffectState> AudioEffects { get; set; } = new();
 }
